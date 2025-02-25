@@ -1,5 +1,7 @@
-package com.kahoot.kahoot.model;
+package com.kahoot.kahoot.model.dto;
 
+import com.kahoot.kahoot.model.Link;
+import com.kahoot.kahoot.model.Question;
 import lombok.Data;
 import java.util.List;
 
@@ -10,6 +12,22 @@ public class TestSession {
 
     public TestSession(Link link, List<Question> questions) {
         this.link = link;
+        this.questions = questions;
+    }
+
+    public Link getLink() {
+        return link;
+    }
+
+    public void setLink(Link link) {
+        this.link = link;
+    }
+
+    public List<Question> getQuestions() {
+        return questions;
+    }
+
+    public void setQuestions(List<Question> questions) {
         this.questions = questions;
     }
 }
