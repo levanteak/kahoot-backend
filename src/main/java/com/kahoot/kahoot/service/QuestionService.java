@@ -3,9 +3,13 @@ package com.kahoot.kahoot.service;
 import com.kahoot.kahoot.model.Answer;
 import com.kahoot.kahoot.model.Question;
 import com.kahoot.kahoot.model.Quiz;
+import com.kahoot.kahoot.model.dto.AnswerDTO;
+import com.kahoot.kahoot.model.dto.QuestionDTO;
 import com.kahoot.kahoot.model.dto.QuestionRequestDTO;
+import com.kahoot.kahoot.model.enums.QuestionType;
 import com.kahoot.kahoot.repository.QuestionRepository;
 import com.kahoot.kahoot.repository.QuizRepository;
+import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,26 +29,30 @@ public class QuestionService {
     @Autowired
     private QuizRepository quizRepository;
 
-    public Question addQuestion(QuestionRequestDTO questionRequestDTO) {
+    public QuestionService(QuestionRepository questionRepository, QuizRepository quizRepository) {
+        this.questionRepository = questionRepository;
+        this.quizRepository = quizRepository;
+    }
+
+    public QuestionDTO addQuestion(QuestionRequestDTO questionRequestDTO) {
         logger.info("Starting to add a new question...");
 
         if (questionRequestDTO.getQuizId() == null) {
-            logger.error("Quiz ID is missing in the request.");
             throw new IllegalArgumentException("Quiz ID must be provided.");
         }
 
         Quiz quiz = quizRepository.findById(questionRequestDTO.getQuizId())
-                .orElseThrow(() -> {
-                    logger.error("Quiz with ID={} not found.", questionRequestDTO.getQuizId());
-                    return new IllegalArgumentException("Quiz not found");
-                });
+                .orElseThrow(() -> new IllegalArgumentException("Quiz not found"));
 
         Question question = new Question();
         question.setQuestionText(questionRequestDTO.getQuestionText());
         question.setQuiz(quiz);
+        question.setQuestionType(questionRequestDTO.getQuestionType());
+        question.setImageBase64(questionRequestDTO.getImageBase64());
 
         List<Answer> answers = questionRequestDTO.getAnswers().stream()
                 .map(answerDTO -> {
+                    logger.info("Mapping answer: text={}, correct={}", answerDTO.getText(), answerDTO.isCorrect());
                     Answer answer = new Answer();
                     answer.setText(answerDTO.getText());
                     answer.setCorrect(answerDTO.isCorrect());
@@ -53,16 +61,23 @@ public class QuestionService {
                 })
                 .collect(Collectors.toList());
 
-        question.setAnswers(answers);
+        if (question.getQuestionType() == QuestionType.SINGLE_CHOICE) {
+            long correctCount = answers.stream().filter(Answer::isCorrect).count();
+            if (correctCount != 1) {
+                throw new IllegalArgumentException("For SINGLE_CHOICE question, exactly one answer must be correct.");
+            }
+        }
 
+        question.setAnswers(answers);
         Question savedQuestion = questionRepository.save(question);
         logger.info("New question added: ID={}, QuizID={}, Text='{}', Answer count={}",
                 savedQuestion.getId(), savedQuestion.getQuiz().getId(), savedQuestion.getQuestionText(), savedQuestion.getAnswers().size());
 
-        return savedQuestion;
+        return convertToDTO(savedQuestion);
     }
 
-    public List<Question> getRandomQuestions(Long quizId, int limit) {
+    @Transactional
+    public List<QuestionDTO> getRandomQuestions(Long quizId, int limit) {
         logger.info("Fetching {} random questions for quiz ID={}", limit, quizId);
         List<Question> questions = questionRepository.findRandomByQuizId(quizId, limit);
 
@@ -72,6 +87,22 @@ public class QuestionService {
             logger.info("Fetched {} random questions for quiz ID={}", questions.size(), quizId);
         }
 
-        return questions;
+        return questions.stream()
+                .map(this::convertToDTO)
+                .collect(Collectors.toList());
+    }
+
+    private QuestionDTO convertToDTO(Question question) {
+        List<AnswerDTO> answerDTOs = question.getAnswers().stream()
+                .map(answer -> new AnswerDTO(answer.getId(), answer.getText(), answer.isCorrect()))
+                .collect(Collectors.toList());
+
+        return new QuestionDTO(
+                question.getId(),
+                question.getQuestionText(),
+                question.getQuestionType(),
+                question.getImageBase64(),
+                answerDTOs
+        );
     }
 }

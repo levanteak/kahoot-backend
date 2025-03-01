@@ -1,12 +1,7 @@
 package com.kahoot.kahoot.controller;
 
-import com.kahoot.kahoot.model.Link;
-import com.kahoot.kahoot.model.Participant;
-import com.kahoot.kahoot.model.Question;
-import com.kahoot.kahoot.model.Response;
-import com.kahoot.kahoot.model.dto.Submission;
-import com.kahoot.kahoot.model.dto.SubmissionResult;
-import com.kahoot.kahoot.model.dto.TestSession;
+import com.kahoot.kahoot.model.*;
+import com.kahoot.kahoot.model.dto.*;
 import com.kahoot.kahoot.service.LinkService;
 import com.kahoot.kahoot.service.ParticipantService;
 import com.kahoot.kahoot.service.QuestionService;
@@ -17,12 +12,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/quiz")
 @Tag(name = "Quiz Controller", description = "API for managing quizzes")
-@CrossOrigin("https://kahoot-frontend-phi.vercel.app")
-//@CrossOrigin("http://localhost:3000")
+//@CrossOrigin("https://kahoot-frontend-phi.vercel.app")
+@CrossOrigin("http://localhost:3000")
 
 public class QuizController {
 
@@ -41,19 +37,33 @@ public class QuizController {
     public TestSession getQuiz(@PathVariable String linkId) {
         logger.info("Received request to get quiz for linkId: {}", linkId);
 
-        // Get the link using the token (linkId)
+        // Получаем ссылку по токену
         Link link = linkService.getLinkByToken(linkId);
         logger.info("Found link with token: {}, associated with quiz: {}", link.getToken(), link.getQuiz().getTitle());
 
-        // Get the random questions for the quiz
-        List<Question> questions = questionService.getRandomQuestions(link.getQuiz().getId(), link.getQuiz().getNumQuestions());
-        logger.info("Fetched {} random questions for quiz: {}", questions.size(), link.getQuiz().getTitle());
+        // Получаем случайные вопросы и преобразуем их в DTO
+        List<QuestionDTO> questionDTOs = questionService.getRandomQuestions(link.getQuiz().getId(), link.getQuiz().getNumQuestions())
+                .stream()
+                .map(q -> new QuestionDTO(
+                        q.getId(),
+                        q.getQuestionText(),
+                        q.getQuestionType(),
+                        q.getImageBase64(),
+                        q.getAnswers().stream()
+                                .map(a -> new AnswerDTO(a.getId(), a.getText(), a.isCorrect()))
+                                .collect(Collectors.toList())
+                ))
+                .collect(Collectors.toList());
 
-        // Return the test session
-        return new TestSession(link, questions);
+        // Возвращаем сессию теста
+        return new TestSession(link, questionDTOs);
     }
 
-    @PostMapping("/{linkId}/submit")
+
+
+
+
+    @PostMapping(value = "/{linkId}/submit", consumes = "application/json")
     public SubmissionResult submitAnswers(@PathVariable String linkId, @RequestBody Submission submission) {
         logger.info("Received submission for linkId: {}", linkId);
         logger.info("Participant name: {}", submission.getParticipantName());

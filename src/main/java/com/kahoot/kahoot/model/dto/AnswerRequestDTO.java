@@ -4,7 +4,6 @@ public class AnswerRequestDTO {
     private String text;
     private boolean isCorrect;
 
-
     public String getText() {
         return text;
     }
@@ -18,6 +17,6 @@ public class AnswerRequestDTO {
     }
 
     public void setCorrect(boolean correct) {
-        isCorrect = correct;
+        this.isCorrect = correct;
     }
 }

@@ -1,8 +1,12 @@
 package com.kahoot.kahoot.model;
 
+import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
+import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
+
+import java.util.List;
 
 @Entity
 public class Response {
@@ -18,12 +22,28 @@ public class Response {
     @JoinColumn(name = "question_id", nullable = false)
     private Question question;
 
-    @ManyToOne
-    @JoinColumn(name = "answer_id", nullable = false)
-    private Answer answer; // Убедись, что это поле не null
+    @ManyToMany
+    @JoinTable(
+            name = "response_answer_mapping",
+            joinColumns = @JoinColumn(name = "response_id"),
+            inverseJoinColumns = @JoinColumn(name = "answer_id")
+    )
+    private List<Answer> answers;
 
-    public Answer getAnswer() {
-        return answer;
+
+
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Response response = (Response) o;
+        return id != null && id.equals(response.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return getClass().hashCode();
     }
 
     public Long getId() {
@@ -50,7 +70,12 @@ public class Response {
         this.question = question;
     }
 
-    public void setAnswer(Answer answer) {
-        this.answer = answer;
+    public List<Answer> getAnswers() {
+        return answers;
     }
+
+    public void setAnswers(List<Answer> answers) {
+        this.answers = answers;
+    }
+
 }

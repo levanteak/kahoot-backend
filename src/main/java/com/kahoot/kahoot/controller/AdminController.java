@@ -1,28 +1,31 @@
 package com.kahoot.kahoot.controller;
 
-import com.kahoot.kahoot.model.Link;
-import com.kahoot.kahoot.model.Participant;
-import com.kahoot.kahoot.model.Question;
-import com.kahoot.kahoot.model.Quiz;
+import com.kahoot.kahoot.model.*;
 import com.kahoot.kahoot.model.dto.LinkRequest;
-import com.kahoot.kahoot.model.dto.LoginRequest;
+import com.kahoot.kahoot.model.dto.*;
+import com.kahoot.kahoot.model.dto.QuestionDTO;
 import com.kahoot.kahoot.model.dto.QuestionRequestDTO;
+import com.kahoot.kahoot.repository.UserRepository;
 import com.kahoot.kahoot.service.*;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import com.kahoot.kahoot.config.security.TokenService;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/admin")
 @Tag(name = "Admin Controller", description = "API for Admin actions")
-//@CrossOrigin("http://localhost:3000")
-@CrossOrigin("https://kahoot-frontend-phi.vercel.app")
+@CrossOrigin("http://localhost:3000")
+//@CrossOrigin("https://kahoot-frontend-phi.vercel.app")
 public class AdminController {
 
     @Autowired
@@ -42,13 +45,49 @@ public class AdminController {
 
     private static final Logger logger = LoggerFactory.getLogger(AdminController.class);
 
-    @PostMapping("/login")
-    public ResponseEntity<String> login(@RequestBody LoginRequest loginRequest, HttpServletRequest request) {
-        logger.info("Admin login attempt with username: {}", loginRequest.getUsername());
-        ResponseEntity<String> result = authService.login(loginRequest.getUsername(), loginRequest.getPassword(), request);
-        logger.info("Admin login result for username {}: {}", loginRequest.getUsername(), result.getBody());
-        return result;
+    public AdminController(QuestionService questionService) {
+        this.questionService = questionService;
     }
+
+
+    @Autowired
+    private UserRepository repository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private TokenService tokenService;
+
+
+
+    @PostMapping("/login")
+    public ResponseEntity<?> login(@RequestBody LoginRequestDTO body) {
+        Optional<User> optionalUser = repository.findByUsername(body.getUsername());
+
+        if (optionalUser.isEmpty()) {
+            logger.warn("Login failed: User {} not found", body.getUsername());
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Wrong username or password");
+        }
+
+        User user = optionalUser.get();
+
+        // Логируем пароли для отладки
+        logger.info("Stored password hash in DB: {}", user.getPassword());
+        logger.info("Entered password: {}", body.getPassword());
+        logger.info("Encoded entered password: {}", passwordEncoder.encode(body.getPassword()));
+
+        if (!passwordEncoder.matches(body.getPassword(), user.getPassword())) {
+            logger.warn("Login failed: Incorrect password for user {}", user.getUsername());
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Wrong username or password");
+        }
+
+        String token = tokenService.generateToken(user);
+        logger.info("User {} logged in successfully", user.getUsername());
+        return ResponseEntity.ok(new LoginResponseDTO(user.getUsername(), token));
+    }
+
+
 
 
     @PostMapping("/quiz")
@@ -67,12 +106,11 @@ public class AdminController {
 
 
     @PostMapping("/questions")
-    public Question addQuestion(@RequestBody QuestionRequestDTO questionRequestDTO) {
+    public QuestionDTO addQuestion(@RequestBody QuestionRequestDTO questionRequestDTO) {
         logger.info("Adding question to quiz with ID: {}", questionRequestDTO.getQuizId());
-        Question question = questionService.addQuestion(questionRequestDTO);
-        logger.info("Question added with ID: {}", question.getId());
-        return question;
+        return questionService.addQuestion(questionRequestDTO);
     }
+
 
     @GetMapping("/results/{quizId}")
     public List<Participant> getResults(@PathVariable Long quizId) {

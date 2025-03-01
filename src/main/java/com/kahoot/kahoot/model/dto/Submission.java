@@ -3,14 +3,15 @@ package com.kahoot.kahoot.model.dto;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.kahoot.kahoot.model.Response;
 import lombok.Data;
+import lombok.NoArgsConstructor;
+
 import java.util.List;
 
 @Data
+@NoArgsConstructor
 public class Submission {
 
     private String participantName;
-
-
     private List<Response> responses;
 
     public String getParticipantName() {

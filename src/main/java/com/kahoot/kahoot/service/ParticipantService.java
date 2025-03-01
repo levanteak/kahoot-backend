@@ -3,6 +3,7 @@ package com.kahoot.kahoot.service;
 import com.kahoot.kahoot.model.*;
 import com.kahoot.kahoot.repository.AnswerRepository;
 import com.kahoot.kahoot.repository.ParticipantRepository;
+import com.kahoot.kahoot.repository.QuestionRepository;
 import com.kahoot.kahoot.repository.ResponseRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.slf4j.Logger;
@@ -13,9 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class ParticipantService {
@@ -30,6 +30,9 @@ public class ParticipantService {
 
     @Autowired
     private AnswerRepository answerRepository;
+
+    @Autowired
+    private QuestionRepository questionRepository;
 
     public Participant createParticipant(String name, Link link) {
         logger.info("Creating participant with name: {}", name);
@@ -54,61 +57,101 @@ public class ParticipantService {
     @Transactional
     public void submitAnswers(Long participantId, List<Response> responses) {
         Instant startTime = Instant.now();
-        logger.info("Starting submitAnswers. participantId: {}, number of responses: {}", participantId, responses.size());
+        logger.info("Starting submitAnswers. participantId: {}, number of responses: {}",
+                participantId, responses != null ? responses.size() : 0);
 
+        if (responses == null || responses.isEmpty()) {
+            logger.warn("submitAnswers failed: responses list is empty. participantId={}", participantId);
+            throw new IllegalArgumentException("Response list cannot be empty.");
+        }
+
+        // Загружаем участника
         Participant participant = participantRepository.findById(participantId)
                 .orElseThrow(() -> {
-                    logger.error("Error: Participant with ID={} not found", participantId);
+                    logger.error("Participant not found for ID: {}", participantId);
                     return new EntityNotFoundException("Participant not found for ID: " + participantId);
                 });
 
-        Set<Long> answeredQuestionIds = new HashSet<>();
+        List<Response> validResponses = new ArrayList<>();
 
         for (Response response : responses) {
-            if (response.getAnswer() == null || response.getAnswer().getId() == null) {
-                logger.error("Error: Answer is missing or has no ID: {}", response);
-                throw new IllegalArgumentException("Answer is missing or has no ID.");
+            if (response == null || response.getAnswers() == null || response.getAnswers().isEmpty()) {
+                logger.warn("Invalid response detected. participantId={}, responseId={}",
+                        participantId, response != null ? response.getId() : null);
+                throw new IllegalArgumentException("Each response must contain at least one answer.");
             }
 
-            Answer answer = answerRepository.findById(response.getAnswer().getId())
-                    .orElseThrow(() -> {
-                        logger.error("Error: Answer with ID={} not found", response.getAnswer().getId());
-                        return new EntityNotFoundException("Answer not found for ID: " + response.getAnswer().getId());
-                    });
+            // Получаем ID всех ответов из запроса
+            List<Long> answerIds = response.getAnswers().stream().map(Answer::getId).toList();
+            logger.info("Fetching answers for IDs: {}", answerIds);
 
-            Question question = answer.getQuestion();
-            if (question == null) {
-                logger.error("Error: Question for answer {} not found.", answer.getId());
-                throw new IllegalStateException("Question for the answer is missing.");
+            // Получаем ответы одним запросом
+            Map<Long, Answer> answersMap = answerRepository.findAllById(answerIds)
+                    .stream().collect(Collectors.toMap(Answer::getId, a -> a));
+
+            List<Answer> answers = response.getAnswers().stream()
+                    .map(answer -> {
+                        Answer foundAnswer = answersMap.get(answer.getId());
+                        if (foundAnswer == null) {
+                            logger.error("Answer not found for ID: {}", answer.getId());
+                            throw new EntityNotFoundException("Answer not found for ID: " + answer.getId());
+                        }
+                        return foundAnswer;
+                    })
+                    .collect(Collectors.toList());
+
+            if (answers.isEmpty()) {
+                logger.error("No valid answers found for response. participantId={}, responseId={}",
+                        participantId, response.getId());
+                throw new IllegalStateException("No valid answers found for response.");
+            }
+
+            // Проверяем, что все ответы принадлежат одному и тому же вопросу
+            Question question = answers.get(0).getQuestion();
+            if (answers.stream().anyMatch(a -> !a.getQuestion().equals(question))) {
+                logger.error("All answers must belong to the same question. participantId={}, responseId={}",
+                        participantId, response.getId());
+                throw new IllegalStateException("All answers must belong to the same question.");
             }
 
             response.setQuestion(question);
-            response.setAnswer(answer);
+            response.setAnswers(answers);
             response.setParticipant(participant);
+            validResponses.add(response);
 
-            logger.info("Processed response: participantId={}, questionId={}, answerId={}, correct={}",
-                    participantId, question.getId(), answer.getId(), answer.isCorrect());
+            logger.info("Processed response: participantId={}, questionId={}, answers={}",
+                    participantId, question.getId(), answers.stream().map(Answer::getId).toList());
         }
 
-        responseRepository.saveAll(responses);
-        logger.info("Responses successfully saved. participantId={}", participantId);
+        // Сохраняем ответы, если они есть
+        if (!validResponses.isEmpty()) {
+            responseRepository.saveAll(validResponses);
+            logger.info("Responses successfully saved. participantId={}, totalResponses={}",
+                    participantId, validResponses.size());
+        } else {
+            logger.warn("No valid responses to save. participantId={}", participantId);
+        }
 
-        int newScore = calculateScore(responses);
+        // Обновляем баллы участника
+        int newScore = calculateScore(validResponses);
         participant.setScore(participant.getScore() + newScore);
-        participantRepository.save(participant);
 
-        logger.info("Score updated: participantId={}, new score={}", participantId, participant.getScore());
+        Instant scoreUpdateStart = Instant.now();
+        participantRepository.save(participant);
+        logger.info("Score updated: participantId={}, new score={}, update time={} ms",
+                participantId, participant.getScore(), Duration.between(scoreUpdateStart, Instant.now()).toMillis());
+
         logger.info("submitAnswers completed in {} ms", Duration.between(startTime, Instant.now()).toMillis());
     }
 
-    public int calculateScore(List<Response> responses) {
-        int score = 0;
-        for (Response response : responses) {
-            if (response.getAnswer().isCorrect()) {
-                score++;
-            }
-        }
-        logger.info("Calculated score: {} based on {} responses", score, responses.size());
-        return score;
+
+
+
+    private int calculateScore(List<Response> responses) {
+        return (int) responses.stream()
+                .filter(response -> response.getAnswers().stream().allMatch(Answer::isCorrect))
+                .count() * 10;
     }
+
+
 }

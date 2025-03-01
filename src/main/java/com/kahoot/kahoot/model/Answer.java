@@ -2,8 +2,6 @@ package com.kahoot.kahoot.model;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
-
-import com.kahoot.kahoot.model.*;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -18,15 +16,19 @@ public class Answer {
 
     @ManyToOne
     @JoinColumn(name = "question_id", nullable = false)
-    @JsonBackReference  // Отключаем сериализацию ссылки на родительский вопрос
     private Question question;
 
     private String text;
-    private boolean isCorrect; // Используем примитивный boolean
+    private boolean isCorrect;
+
+
     public boolean isCorrect() {
         return isCorrect;
     }
 
+    public void setCorrect(boolean correct) {
+        isCorrect = correct;
+    }
 
     public Long getId() {
         return id;
@@ -52,7 +54,17 @@ public class Answer {
         this.text = text;
     }
 
-    public void setCorrect(boolean correct) {
-        isCorrect = correct;
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Answer answer = (Answer) o;
+        return id != null && id.equals(answer.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return getClass().hashCode();
     }
 }
